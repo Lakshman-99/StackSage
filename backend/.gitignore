@@ -1,0 +1,70 @@
+# ============================================
+# StackSage Backend - .gitignore
+# ============================================
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+
+# --- Virtual Environments ---
+venv/
+.venv/
+env/
+ENV/
+
+# --- Environment Variables ---
+.env
+.env.local
+.env.production
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.lnk
+
+# --- Data (cloned repos, vector store) ---
+data/
+*.db
+*.sqlite3
+
+# --- Logs ---
+*.log
+logs/
+
+# --- Testing ---
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+*.cover
+
+# --- Type Checking ---
+.mypy_cache/
+.dmypy.json
+
+# --- Distribution ---
+*.tar.gz
+*.whl
