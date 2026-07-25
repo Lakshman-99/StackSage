@@ -25,11 +25,14 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     openrouter_api_key: str = ""
     llm_provider: Literal["groq", "openrouter"] = "groq"
-    llm_model: str = "llama-3.1-70b-versatile"
+    llm_model: str = "llama-3.3-70b-versatile"
 
     # --- Vector Store ---
     chroma_persist_dir: str = "./data/chromadb"
     embedding_model: str = "all-MiniLM-L6-v2"
+
+    # --- Persistent State ---
+    state_persist_dir: str = "./data/state"
 
     # --- Repository ---
     repo_storage_dir: str = "./data/repos"
@@ -55,6 +58,7 @@ class Settings(BaseSettings):
 
     # --- Rate Limiting ---
     rate_limit_rpm: int = 30
+    agent_delay_seconds: float = 4.0  # Delay between agent LLM calls to avoid rate limits
 
     @property
     def repo_storage_path(self) -> Path:
@@ -65,6 +69,12 @@ class Settings(BaseSettings):
     @property
     def chroma_persist_path(self) -> Path:
         path = Path(self.chroma_persist_dir)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @property
+    def state_persist_path(self) -> Path:
+        path = Path(self.state_persist_dir)
         path.mkdir(parents=True, exist_ok=True)
         return path
 

@@ -1,28 +1,62 @@
 """
-StackSage LLM Service - Unified interface for Groq and OpenRouter LLM providers.
-Handles prompt construction, rate limiting, retries, and response parsing.
+StackSage LLM Service - Unified interface for Groq and OpenRouter.
+Handles rate limits (429), retries with backoff, timeouts, and JSON parsing.
 """
 
+import asyncio
 import json
+import re
 from typing import Any, Optional
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception,
+)
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Provider endpoint mapping
 PROVIDER_ENDPOINTS = {
     "groq": "https://api.groq.com/openai/v1/chat/completions",
     "openrouter": "https://openrouter.ai/api/v1/chat/completions",
 }
 
 
+# ============================================================
+# Custom Exceptions
+# ============================================================
+
+class LLMError(Exception):
+    """Base error for LLM service."""
+    pass
+
+class RateLimitError(LLMError):
+    """429 Too Many Requests - retryable."""
+    def __init__(self, message: str, retry_after: float = 5.0):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+class LLMClientError(LLMError):
+    """4xx errors (except 429) - NOT retryable."""
+    pass
+
+class LLMServerError(LLMError):
+    """5xx errors - retryable."""
+    pass
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Only retry on transient errors."""
+    return isinstance(exc, (RateLimitError, LLMServerError, httpx.ConnectError, httpx.ReadTimeout))
+
+
 class LLMService:
-    """Unified LLM client supporting Groq and OpenRouter."""
+    """Unified LLM client with rate limit handling and retries."""
 
     def __init__(self):
         self.settings = get_settings()
@@ -34,7 +68,9 @@ class LLMService:
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(timeout=120.0)
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(120.0, connect=15.0)
+            )
         return self._client
 
     async def close(self):
@@ -51,10 +87,17 @@ class LLMService:
             headers["X-Title"] = "StackSage"
         return headers
 
+    def _parse_retry_after(self, error_body: str) -> float:
+        """Extract retry-after seconds from error message."""
+        match = re.search(r"try again in (\d+\.?\d*)s", error_body, re.IGNORECASE)
+        if match:
+            return float(match.group(1)) + 1.0  # Buffer
+        return 5.0
+
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=30),
-        retry=retry_if_exception_type((httpx.HTTPStatusError, httpx.ConnectError)),
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=2, min=3, max=60),
+        retry=retry_if_exception(_is_retryable),
     )
     async def complete(
         self,
@@ -64,7 +107,7 @@ class LLMService:
         max_tokens: int = 4096,
         response_format: Optional[str] = None,
     ) -> str:
-        """Send a completion request to the configured LLM provider."""
+        """Send a completion request with full error handling."""
         client = await self._get_client()
 
         payload: dict[str, Any] = {
@@ -76,20 +119,44 @@ class LLMService:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
-
         if response_format == "json":
             payload["response_format"] = {"type": "json_object"}
 
-        logger.debug("llm_request", provider=self.provider, model=self.model, prompt_len=len(user_prompt))
+        prompt_chars = len(system_prompt) + len(user_prompt)
+        logger.debug("llm_request", provider=self.provider, model=self.model, prompt_chars=prompt_chars)
 
-        response = await client.post(
-            self.endpoint,
-            headers=self._build_headers(),
-            json=payload,
-        )
-        response.raise_for_status()
+        # --- Network errors ---
+        try:
+            response = await client.post(self.endpoint, headers=self._build_headers(), json=payload)
+        except httpx.ReadTimeout:
+            logger.error("llm_timeout", provider=self.provider, prompt_chars=prompt_chars)
+            raise
+        except httpx.ConnectError as e:
+            logger.error("llm_connect_error", provider=self.provider, error=str(e))
+            raise
+
+        # --- Rate limit (429) ---
+        if response.status_code == 429:
+            body = response.text
+            retry_after = self._parse_retry_after(body)
+            logger.warning("llm_rate_limited", provider=self.provider, retry_after=retry_after)
+            await asyncio.sleep(retry_after)
+            raise RateLimitError(f"Rate limited by {self.provider}", retry_after=retry_after)
+
+        # --- Server errors (5xx) ---
+        if response.status_code >= 500:
+            body = response.text
+            logger.error("llm_server_error", provider=self.provider, status=response.status_code, body=body[:300])
+            raise LLMServerError(f"{self.provider} returned {response.status_code}")
+
+        # --- Client errors (400, 401, 403, etc.) ---
+        if response.status_code >= 400:
+            body = response.text
+            logger.error("llm_client_error", provider=self.provider, status=response.status_code, body=body[:500])
+            raise LLMClientError(f"{self.provider} returned {response.status_code}: {body[:200]}")
+
+        # --- Success ---
         data = response.json()
-
         content = data["choices"][0]["message"]["content"]
         usage = data.get("usage", {})
 
@@ -108,7 +175,7 @@ class LLMService:
         temperature: float = 0.2,
         max_tokens: int = 4096,
     ) -> dict[str, Any]:
-        """Send a completion request and parse the response as JSON."""
+        """Send a completion and parse response as JSON with fallback extraction."""
         raw = await self.complete(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -116,7 +183,7 @@ class LLMService:
             max_tokens=max_tokens,
             response_format="json",
         )
-        # Strip markdown code fences if present
+
         cleaned = raw.strip()
         if cleaned.startswith("```"):
             cleaned = cleaned.split("\n", 1)[-1]
@@ -126,14 +193,23 @@ class LLMService:
 
         try:
             return json.loads(cleaned)
-        except json.JSONDecodeError as e:
-            logger.error("json_parse_error", raw_response=raw[:500], error=str(e))
-            raise ValueError(f"LLM returned invalid JSON: {e}") from e
+        except json.JSONDecodeError:
+            pass
+
+        # Fallback: extract first JSON object from response
+        json_match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group())
+            except json.JSONDecodeError:
+                pass
+
+        logger.error("json_parse_failed", raw_response=raw[:500])
+        raise ValueError(f"LLM returned unparseable response (length={len(raw)})")
 
 
 # Singleton
 _llm_service: Optional[LLMService] = None
-
 
 def get_llm_service() -> LLMService:
     global _llm_service
