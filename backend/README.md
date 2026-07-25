@@ -21,6 +21,7 @@ CodeLens uses six specialized AI agents to analyze Git repositories, reverse-eng
 │  LLM Service (Groq/OpenRouter)  │  ChromaDB (RAG)    │
 │  NetworkX (PageRank)            │  GitPython          │
 └──────────────────────────────────────────────────────┘
+adsasdasd sad
 ```
 
 ## Agents
