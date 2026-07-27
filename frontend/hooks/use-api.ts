@@ -73,6 +73,15 @@ export function useArchitecture(repoId: string, enabled = true) {
     queryFn: () => api.getArchitecture(repoId),
     enabled,
     staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+}
+
+export function useRegenerateArchitecture(repoId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.regenerateArchitecture(repoId),
+    onSuccess: (data) => queryClient.setQueryData(queryKeys.architecture(repoId), data),
   });
 }
 
@@ -82,6 +91,15 @@ export function useEntryPoints(repoId: string, enabled = true) {
     queryFn: () => api.getEntryPoints(repoId),
     enabled,
     staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+}
+
+export function useRegenerateEntryPoints(repoId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.regenerateEntryPoints(repoId),
+    onSuccess: (data) => queryClient.setQueryData(queryKeys.entryPoints(repoId), data),
   });
 }
 
@@ -91,6 +109,15 @@ export function useGlossary(repoId: string, enabled = true) {
     queryFn: () => api.getGlossary(repoId),
     enabled,
     staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+}
+
+export function useRegenerateGlossary(repoId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.regenerateGlossary(repoId),
+    onSuccess: (data) => queryClient.setQueryData(queryKeys.glossary(repoId), data),
   });
 }
 
@@ -121,6 +148,15 @@ export function useOnboarding(repoId: string, enabled = true) {
     queryFn: () => api.getOnboarding(repoId),
     enabled,
     staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+}
+
+export function useRegenerateOnboarding(repoId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.regenerateOnboarding(repoId),
+    onSuccess: (data) => queryClient.setQueryData(["repo", repoId, "onboarding"], data),
   });
 }
 

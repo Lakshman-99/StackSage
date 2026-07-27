@@ -24,7 +24,8 @@ class Settings(BaseSettings):
     # --- LLM Provider ---
     groq_api_key: str = ""
     openrouter_api_key: str = ""
-    llm_provider: Literal["groq", "openrouter"] = "groq"
+    gemini_api_key: str = ""
+    llm_provider: Literal["groq", "openrouter", "gemini"] = "groq"
     llm_model: str = "llama-3.3-70b-versatile"
 
     # --- Vector Store ---
@@ -82,6 +83,8 @@ class Settings(BaseSettings):
     def active_api_key(self) -> str:
         if self.llm_provider == "groq":
             return self.groq_api_key
+        if self.llm_provider == "gemini":
+            return self.gemini_api_key
         return self.openrouter_api_key
 
 

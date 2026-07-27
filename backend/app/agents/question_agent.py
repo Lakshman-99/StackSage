@@ -92,6 +92,7 @@ class QuestionAgent(BaseAgent):
         """Answer a question about the codebase using RAG."""
         question: str = kwargs["question"]
         include_snippets: bool = kwargs.get("include_code_snippets", True)
+        file_context: str = kwargs.get("file_context", "")
 
         self.logger.info("question_asked", repo_id=state.repo_id, question=question[:100])
 
@@ -100,7 +101,7 @@ class QuestionAgent(BaseAgent):
         results = vector_store.query(
             repo_id=state.repo_id,
             query_text=question,
-            n_results=15,
+            n_results=8,
         )
 
         # Step 2: Format context
@@ -114,16 +115,16 @@ class QuestionAgent(BaseAgent):
         # Step 4: Generate answer via LLM
         prompt = QUESTION_USER.format(
             question=question,
-            repo_id=state.repo_id,
-            context_chunks=self._truncate(context_str, 40000),
-            architecture_summary=arch_summary[:3000],
+            file_context=f"Focused file: {file_context[:2500]}" if file_context else "",
+            context_chunks=self._truncate(context_str, 9000),
+            architecture_summary=arch_summary[:1500],
         )
 
         answer = await self.llm.complete(
             system_prompt=QUESTION_SYSTEM,
             user_prompt=prompt,
             temperature=0.3,
-            max_tokens=3000,
+            max_tokens=1500,
         )
 
         # Step 5: Compute confidence

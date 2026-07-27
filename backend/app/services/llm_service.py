@@ -24,6 +24,15 @@ logger = get_logger(__name__)
 PROVIDER_ENDPOINTS = {
     "groq": "https://api.groq.com/openai/v1/chat/completions",
     "openrouter": "https://openrouter.ai/api/v1/chat/completions",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+}
+
+# Used when LLM_PROVIDER is switched without also overriding LLM_MODEL from another
+# provider's default (e.g. still set to Groq's "llama-3.3-70b-versatile").
+PROVIDER_DEFAULT_MODEL = {
+    "groq": "llama-3.3-70b-versatile",
+    "openrouter": "llama-3.3-70b-versatile",
+    "gemini": "gemini-3.5-flash",
 }
 
 
@@ -62,6 +71,10 @@ class LLMService:
         self.settings = get_settings()
         self.provider = self.settings.llm_provider
         self.model = self.settings.llm_model
+        # Guard against a stale cross-provider default (e.g. LLM_PROVIDER switched to
+        # "gemini" but LLM_MODEL still says a Groq model name) instead of failing every call.
+        if self.model == PROVIDER_DEFAULT_MODEL.get("groq") and self.provider != "groq":
+            self.model = PROVIDER_DEFAULT_MODEL[self.provider]
         self.api_key = self.settings.active_api_key
         self.endpoint = PROVIDER_ENDPOINTS[self.provider]
         self._client: Optional[httpx.AsyncClient] = None
@@ -110,6 +123,15 @@ class LLMService:
         """Send a completion request with full error handling."""
         client = await self._get_client()
 
+        # Gemini 3.x models reason before answering and that "thinking" spends from the
+        # same max_tokens budget - the OpenAI-compat layer reports only the visible
+        # completion_tokens used, so a budget sized for Groq/OpenRouter (which don't
+        # reason) silently truncates Gemini's actual JSON output mid-string. Raise the
+        # floor and ask for minimal reasoning to leave the budget for the real answer.
+        effective_max_tokens = max_tokens
+        if self.provider == "gemini":
+            effective_max_tokens = max(max_tokens, 8192)
+
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": [
@@ -117,8 +139,10 @@ class LLMService:
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": temperature,
-            "max_tokens": max_tokens,
+            "max_tokens": effective_max_tokens,
         }
+        if self.provider == "gemini":
+            payload["reasoning_effort"] = "low"
         if response_format == "json":
             payload["response_format"] = {"type": "json_object"}
 

@@ -23,6 +23,23 @@ class ApiError extends Error {
   }
 }
 
+// FastAPI's automatic request-validation errors return `detail` as an array of
+// {loc, msg, type} objects (not a string) - stringifying that naively produces
+// "[object Object]". Normalize any shape into readable text.
+function formatErrorDetail(detail: unknown, fallback: string): string {
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    const parts = detail.map((d) =>
+      typeof d === "string" ? d : d?.msg || JSON.stringify(d)
+    );
+    return parts.join("; ") || fallback;
+  }
+  if (detail && typeof detail === "object") {
+    return (detail as any).msg || JSON.stringify(detail);
+  }
+  return fallback;
+}
+
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${endpoint}`;
   const res = await fetch(url, {
@@ -32,7 +49,7 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new ApiError(body.detail || res.statusText, res.status);
+    throw new ApiError(formatErrorDetail(body.detail, res.statusText), res.status);
   }
 
   return res.json();
@@ -69,11 +86,20 @@ export const api = {
   getArchitecture: (repoId: string) =>
     request<ArchitectureResponse>(`/repos/${repoId}/architecture`),
 
+  regenerateArchitecture: (repoId: string) =>
+    request<ArchitectureResponse>(`/repos/${repoId}/architecture/regenerate`, { method: "POST" }),
+
   getEntryPoints: (repoId: string) =>
     request<EntryPointsResponse>(`/repos/${repoId}/entry-points`),
 
+  regenerateEntryPoints: (repoId: string) =>
+    request<EntryPointsResponse>(`/repos/${repoId}/entry-points/regenerate`, { method: "POST" }),
+
   getGlossary: (repoId: string) =>
     request<GlossaryResponse>(`/repos/${repoId}/glossary`),
+
+  regenerateGlossary: (repoId: string) =>
+    request<GlossaryResponse>(`/repos/${repoId}/glossary/regenerate`, { method: "POST" }),
 
   // ============================================================
   // On-Demand Agents
@@ -97,6 +123,9 @@ export const api = {
 
   getOnboarding: (repoId: string) =>
     request<any>(`/repos/${repoId}/onboarding`),
+
+  regenerateOnboarding: (repoId: string) =>
+    request<any>(`/repos/${repoId}/onboarding/regenerate`, { method: "POST" }),
 
   // ============================================================
   // File Explorer

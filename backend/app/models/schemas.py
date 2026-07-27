@@ -63,6 +63,7 @@ class QuestionRequest(BaseModel):
     repo_id: str = Field(..., description="Repository identifier")
     question: str = Field(..., min_length=3, max_length=2000, description="Question about the codebase")
     include_code_snippets: bool = Field(default=True, description="Include relevant code in response")
+    file_path: str = Field(default="", description="Optional file path to focus the answer on")
 
     model_config = ConfigDict(json_schema_extra={
         "example": {
@@ -122,6 +123,7 @@ class ArchitectureLayer(BaseModel):
     description: str
     files: list[str] = Field(default_factory=list)
     responsibilities: list[str] = Field(default_factory=list)
+    talks_to: list[str] = Field(default_factory=list)
 
 
 class EntryPointFile(BaseModel):

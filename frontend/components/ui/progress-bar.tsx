@@ -15,15 +15,15 @@ export function ProgressBar({ progress, status, currentStep }: ProgressBarProps)
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-mono text-zinc-500">{currentStep || status}</span>
+        <span className="text-[11px] font-mono text-ink-500">{currentStep || status}</span>
         <span className={cn(
           "text-[11px] font-mono font-medium",
-          isFailed ? "text-red-400" : isComplete ? "text-accent-400" : "text-amber-400"
+          isFailed ? "text-red-500" : isComplete ? "text-accent-600" : "text-amber-500"
         )}>
           {Math.round(progress)}%
         </span>
       </div>
-      <div className="h-1 bg-zinc-800/60 rounded-full overflow-hidden">
+      <div className="h-1 bg-ink-100 rounded-full overflow-hidden">
         <div
           className={cn(
             "h-full rounded-full transition-all duration-700 ease-out",

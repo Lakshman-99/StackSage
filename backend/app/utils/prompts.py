@@ -26,6 +26,11 @@ Total Files: {file_count} | Languages: {languages}
 File tree structure:
 {file_tree}
 
+Real file-level dependency edges detected by static analysis (source imports target -
+use these to ground the diagram and data_flow description, do not invent connections
+that contradict them):
+{dependency_edges}
+
 Key file contents:
 {sample_files}
 
@@ -50,7 +55,7 @@ Respond with this EXACT JSON structure:
             "description": "What this layer does and WHY it exists. 2-3 sentences.",
             "files": ["path/to/key/file.py"],
             "responsibilities": ["specific responsibility 1"],
-            "talks_to": ["Other Layer Name"]
+            "talks_to": ["Other Layer Name this one actually calls or is called by"]
         }}
     ],
     "design_patterns": [
@@ -61,8 +66,18 @@ Respond with this EXACT JSON structure:
         }}
     ],
     "data_flow": "Describe how a typical request flows through the system from entry to response. Be specific about which files/modules are involved.",
-    "mermaid_diagram": "graph TD; A[Client] --> B[API Gateway]; B --> C[Service]; C --> D[Database]; (generate a VALID mermaid flowchart showing the actual architecture)"
-}}"""
+    "mermaid_diagram": "A Mermaid flowchart string diagramming THIS repository's actual layers and how they connect. Follow the rules below exactly."
+}}
+
+MERMAID DIAGRAM RULES for the mermaid_diagram field - read carefully, these are strictly enforced:
+1. It must depict the SPECIFIC layers/services you listed above and the "talks_to" relationships between them - never output a generic placeholder like a bare Client -> API Gateway -> Service -> Database loop unless that is genuinely and completely this repo's entire architecture.
+2. Start with "graph TD" (top-down) or "graph LR" (left-right) - pick whichever reads more clearly given the number of layers.
+3. Put one subgraph per layer: subgraph id["Layer Name"] ... end, containing 1-3 nodes for the layer's real key files/modules (short labels, not full paths).
+4. Draw arrows between subgraphs/nodes based on the actual "talks_to" data and the dependency edges given above, not invented ones. Use plain arrows only: A --> B. Do NOT put text labels on arrows (no A -->|label| B) - this syntax is a common source of malformed diagrams, so express what an edge means through the node names instead.
+5. Node and subgraph IDs must be short and made only of letters, digits, and underscores. NEVER use end, class, style, click, subgraph, or graph as an ID - these are reserved Mermaid keywords and any of them used as an ID silently breaks the whole diagram.
+6. Any label containing spaces, parentheses, colons, slashes, or punctuation MUST be wrapped in double quotes inside its brackets, e.g. svc1["Deployment Service (Node.js)"].
+7. Use \\n as the newline between statements (this is a JSON string) - do not chain everything onto one line with semicolons, and do not wrap the diagram in markdown code fences.
+8. The diagram must have at least as many nodes as there are layers above, plus any external systems (database, queue, third-party API, client) that are actually part of the flow."""
 
 # ============================================================
 # Entry Point Agent

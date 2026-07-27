@@ -93,9 +93,11 @@ class ChangeImpactAgent(BaseAgent):
 
     async def run(self, state: RepoState, **kwargs) -> ChangeImpactResponse:
         """Analyze the impact of changing a specific file."""
-        target_file: str = kwargs["file_path"]
+        target_file: str = kwargs["file_path"].replace("\\", "/")
         description: str = kwargs.get("description", "General modification")
-        files = state.parsed_files
+        # Normalize in case paths were persisted with OS-native (Windows) separators
+        # by an older ingestion run - all path logic below assumes "/".
+        files = [{**f, "path": f["path"].replace("\\", "/")} for f in state.parsed_files]
 
         self.logger.info("change_impact_analysis", repo_id=state.repo_id, target=target_file)
 

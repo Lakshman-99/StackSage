@@ -6,6 +6,8 @@ Handles: invalid URLs, private repos, empty repos, clone failures, large repos.
 import hashlib
 import os
 import re
+import shutil
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -102,6 +104,30 @@ class IngestionAgent(BaseAgent):
                     functions.append(name)
         return classes, functions
 
+    @staticmethod
+    def _force_rmtree(path: Path) -> None:
+        """Remove a directory tree, clearing read-only bits git sets on objects
+        (otherwise rmtree silently fails on Windows and leaves a stale, non-empty
+        directory that blocks the next clone)."""
+        def _on_error(func, target, exc_info):
+            try:
+                os.chmod(target, stat.S_IWRITE)
+                func(target)
+            except Exception:
+                pass
+        shutil.rmtree(path, onerror=_on_error)
+
+    @staticmethod
+    def _git_stderr(e: "git.exc.GitCommandError") -> str:
+        """Extract just the stderr text from a GitCommandError, excluding the
+        echoed cmdline (e.g. '--branch=main') which can spuriously match keyword
+        checks below regardless of what actually went wrong."""
+        stderr = getattr(e, "stderr", None)
+        if stderr:
+            return str(stderr).lower()
+        lines = [l for l in str(e).splitlines() if not l.strip().startswith("cmdline:")]
+        return "\n".join(lines).lower()
+
     async def _clone_repo(self, repo_url: str, branch: str) -> Path:
         """Clone with error handling for private repos, network issues, etc."""
         import git
@@ -111,15 +137,22 @@ class IngestionAgent(BaseAgent):
 
         if clone_path.exists():
             self.logger.info("repo_exists_locally", path=str(clone_path))
+            repo = None
             try:
                 repo = git.Repo(clone_path)
                 repo.remotes.origin.fetch()
                 repo.git.checkout(branch)
                 repo.remotes.origin.pull()
+                repo.close()
                 return clone_path
-            except Exception:
-                import shutil
-                shutil.rmtree(clone_path, ignore_errors=True)
+            except Exception as e:
+                self.logger.warning("repo_reuse_failed", path=str(clone_path), error=str(e))
+                if repo is not None:
+                    try:
+                        repo.close()
+                    except Exception:
+                        pass
+                self._force_rmtree(clone_path)
 
         self.logger.info("cloning_repo", url=repo_url, branch=branch)
         try:
@@ -131,17 +164,26 @@ class IngestionAgent(BaseAgent):
                 single_branch=True,
             )
         except git.exc.GitCommandError as e:
-            error_msg = str(e).lower()
-            if "not found" in error_msg or "404" in error_msg:
+            stderr = self._git_stderr(e)
+            if "already exists and is not an empty directory" in stderr:
+                # Cleanup above didn't fully clear the directory (stale locked
+                # files); force it again and retry the clone exactly once.
+                self._force_rmtree(clone_path)
+                try:
+                    git.Repo.clone_from(repo_url, str(clone_path), branch=branch, depth=1, single_branch=True)
+                    return clone_path
+                except git.exc.GitCommandError as retry_e:
+                    stderr = self._git_stderr(retry_e)
+            if "not found" in stderr or "404" in stderr:
                 raise IngestionError(f"Repository not found: {repo_url}. Is it public?")
-            elif "authentication" in error_msg or "403" in error_msg or "401" in error_msg:
+            elif "authentication" in stderr or "403" in stderr or "401" in stderr or "could not read username" in stderr:
                 raise IngestionError(f"Authentication required. Only public repos are supported: {repo_url}")
-            elif "could not resolve host" in error_msg:
+            elif "could not resolve host" in stderr:
                 raise IngestionError(f"Could not resolve host. Check the URL: {repo_url}")
-            elif "branch" in error_msg:
+            elif "remote branch" in stderr or "couldn't find remote ref" in stderr:
                 raise IngestionError(f"Branch '{branch}' not found in {repo_url}")
             else:
-                raise IngestionError(f"Git clone failed: {str(e)[:200]}")
+                raise IngestionError(f"Git clone failed: {stderr[:200] or str(e)[:200]}")
         except Exception as e:
             raise IngestionError(f"Failed to clone repository: {str(e)[:200]}")
 
@@ -155,7 +197,9 @@ class IngestionAgent(BaseAgent):
             dirs[:] = [d for d in dirs if d not in settings.skip_dirs]
             for fname in files:
                 fpath = Path(root) / fname
-                rel_path = str(fpath.relative_to(repo_path))
+                # Always use forward slashes regardless of OS, so paths are
+                # consistent for tree-building, dependency graphs, and the frontend.
+                rel_path = fpath.relative_to(repo_path).as_posix()
                 if fpath.suffix.lower() not in settings.supported_extensions:
                     continue
                 try:

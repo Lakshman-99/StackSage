@@ -28,18 +28,20 @@ export function extractRepoName(url: string): string {
 
 export function getStatusColor(status: string): string {
   switch (status) {
-    case "complete": return "text-sage-400";
-    case "failed": return "text-red-400";
-    case "pending": return "text-zinc-400";
-    default: return "text-amber-400";
+    case "complete": return "text-accent-600";
+    case "failed": return "text-red-600";
+    case "pending": return "text-ink-400";
+    default: return "text-amber-600";
   }
 }
 
-export function getRiskColor(level: string): string {
+/** Text + left-border colors for the flattened "notice" pattern (risk banners,
+ * impact badges) - deliberately no filled background, just a hairline + text tint. */
+export function getRiskColor(level: string): { text: string; border: string } {
   switch (level) {
-    case "high": return "text-red-400 bg-red-400/10 border-red-400/20";
-    case "medium": return "text-amber-400 bg-amber-400/10 border-amber-400/20";
-    case "low": return "text-sage-400 bg-sage-400/10 border-sage-400/20";
-    default: return "text-zinc-400 bg-zinc-400/10 border-zinc-400/20";
+    case "high": return { text: "text-red-600", border: "border-red-400" };
+    case "medium": return { text: "text-amber-600", border: "border-amber-400" };
+    case "low": return { text: "text-accent-700", border: "border-accent-400" };
+    default: return { text: "text-ink-500", border: "border-ink-300" };
   }
 }

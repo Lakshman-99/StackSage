@@ -16,7 +16,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en">
       <body className="min-h-screen">
         <QueryProvider>
           <div className="flex h-screen overflow-hidden">
@@ -26,7 +26,7 @@ export default function RootLayout({
           <Toaster
             position="bottom-right"
             toastOptions={{
-              className: "!bg-zinc-900 !text-zinc-200 !border !border-zinc-800/60 !rounded-xl !text-sm !shadow-2xl",
+              className: "!bg-white !text-ink-900 !border !border-ink-200 !rounded-md !text-sm !shadow-xl !shadow-ink-900/10",
             }}
           />
         </QueryProvider>

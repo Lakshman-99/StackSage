@@ -1,17 +1,29 @@
 "use client";
 
 import { useState } from "react";
-import { useGlossary } from "@/hooks/use-api";
-import { Loader2, Search, BookOpen, Tag } from "lucide-react";
+import toast from "react-hot-toast";
+import { useGlossary, useRegenerateGlossary } from "@/hooks/use-api";
+import { Loader2, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { RegenerateButton, TabUnavailable } from "@/components/ui/regenerate-button";
 
 export function GlossaryTab({ repoId }: { repoId: string }) {
   const { data, isLoading, error } = useGlossary(repoId);
+  const regenerate = useRegenerateGlossary(repoId);
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
-  if (isLoading) return <div className="flex justify-center py-20"><Loader2 className="w-5 h-5 animate-spin text-accent-400" /></div>;
-  if (error || !data) return <div className="text-center py-20 text-zinc-600 text-sm">Glossary not available.</div>;
+  const handleRegenerate = () => {
+    regenerate.mutate(undefined, {
+      onSuccess: () => toast.success("Glossary regenerated"),
+      onError: (e: any) => toast.error(e?.message || "Failed to regenerate glossary"),
+    });
+  };
+
+  if (isLoading) return <div className="flex justify-center py-20"><Loader2 className="w-5 h-5 animate-spin text-ink-400" /></div>;
+  if (error || !data) {
+    return <TabUnavailable message="Glossary not available." onRegenerate={handleRegenerate} isPending={regenerate.isPending} />;
+  }
 
   const categories = Array.from(new Set(data.terms.map((t) => t.category).filter(Boolean)));
   const filtered = data.terms.filter((t) => {
@@ -21,30 +33,23 @@ export function GlossaryTab({ repoId }: { repoId: string }) {
   });
 
   return (
-    <div className="space-y-5 animate-fade-in-up">
-      <div className="flex items-center gap-2">
-        <BookOpen className="w-4 h-4 text-accent-400" />
-        <span className="text-sm font-medium text-zinc-200">{data.total_terms} terms</span>
+    <div className="animate-fade-in-up">
+      <div className="flex items-center justify-end mb-3">
+        <RegenerateButton onClick={handleRegenerate} isPending={regenerate.isPending} />
       </div>
 
-      {/* Search + Filters */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="flex-1 card !rounded-xl flex items-center gap-2 px-3 py-2.5">
-          <Search className="w-4 h-4 text-zinc-700 shrink-0" />
-          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search terms..." className="flex-1 bg-transparent text-sm text-zinc-200 placeholder:text-zinc-700 outline-none" />
-        </div>
+      <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
+        <span className="text-sm font-medium text-ink-800">{data.total_terms} terms</span>
+
         {categories.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] font-mono">
             <button onClick={() => setSelectedCategory(null)}
-              className={cn("px-2.5 py-1.5 rounded-lg text-[11px] font-mono transition-all border",
-                !selectedCategory ? "bg-accent-600/10 text-accent-400 border-accent-600/20" : "bg-zinc-900/50 text-zinc-500 border-zinc-800/40 hover:text-zinc-300")}>
+              className={cn("transition-colors", !selectedCategory ? "text-ink-950 underline underline-offset-4" : "text-ink-400 hover:text-ink-700")}>
               All
             </button>
             {categories.map((cat) => (
               <button key={cat} onClick={() => setSelectedCategory(cat === selectedCategory ? null : cat)}
-                className={cn("px-2.5 py-1.5 rounded-lg text-[11px] font-mono transition-all border",
-                  cat === selectedCategory ? "bg-accent-600/10 text-accent-400 border-accent-600/20" : "bg-zinc-900/50 text-zinc-500 border-zinc-800/40 hover:text-zinc-300")}>
+                className={cn("transition-colors", cat === selectedCategory ? "text-ink-950 underline underline-offset-4" : "text-ink-400 hover:text-ink-700")}>
                 {cat}
               </button>
             ))}
@@ -52,25 +57,31 @@ export function GlossaryTab({ repoId }: { repoId: string }) {
         )}
       </div>
 
+      <div className="flex items-center gap-2 border-b border-ink-200 focus-within:border-ink-900 pb-2 mb-2 transition-colors">
+        <Search className="w-4 h-4 text-ink-400 shrink-0" />
+        <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search terms..." className="flex-1 bg-transparent text-sm text-ink-800 placeholder:text-ink-400 outline-none" />
+      </div>
+
       {/* Terms */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="divide-y divide-ink-200">
         {filtered.map((term) => (
-          <div key={term.term} className="card card-glow p-5">
-            <div className="flex items-start justify-between gap-2 mb-2">
-              <h4 className="text-sm font-mono font-medium text-accent-400">{term.term}</h4>
-              {term.category && <span className="mono-tag text-[10px] shrink-0"><Tag className="w-2.5 h-2.5 mr-1 inline" />{term.category}</span>}
+          <div key={term.term} className="py-5">
+            <div className="flex items-start justify-between gap-2 mb-1.5">
+              <h4 className="font-display italic text-lg text-ink-900">{term.term}</h4>
+              {term.category && <span className="text-[10px] font-mono uppercase tracking-wider text-ink-400 shrink-0 pt-1.5">{term.category}</span>}
             </div>
-            <p className="text-[12px] text-zinc-500 leading-relaxed">{term.definition}</p>
+            <p className="text-[13px] text-ink-600 leading-relaxed">{term.definition}</p>
             {term.source_files.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-3">
-                {term.source_files.slice(0, 3).map((f) => <span key={f} className="text-[10px] font-mono text-zinc-700 bg-zinc-900 px-1.5 py-0.5 rounded">{f.split("/").pop()}</span>)}
+              <div className="flex flex-wrap gap-1 mt-2.5">
+                {term.source_files.slice(0, 3).map((f) => <span key={f} className="text-[10px] font-mono text-ink-400">{f.split("/").pop()}</span>)}
               </div>
             )}
           </div>
         ))}
       </div>
 
-      {filtered.length === 0 && <p className="text-center py-10 text-sm text-zinc-700">No terms match your search.</p>}
+      {filtered.length === 0 && <p className="text-center py-10 text-sm text-ink-400">No terms match your search.</p>}
     </div>
   );
 }

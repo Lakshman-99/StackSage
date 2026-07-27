@@ -3,11 +3,19 @@ StackSage Logging - Structured logging with structlog.
 """
 
 import logging
+import sys
 import structlog
 
 
 def setup_logging(debug: bool = False) -> None:
     log_level = logging.DEBUG if debug else logging.INFO
+
+    # Windows consoles often default to a legacy codepage (e.g. cp1252) that can't
+    # encode emoji/unicode in log messages (e.g. repo READMEs), crashing the print
+    # call itself with UnicodeEncodeError. Force UTF-8 with graceful replacement.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
 
     structlog.configure(
         processors=[

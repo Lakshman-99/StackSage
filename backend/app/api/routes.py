@@ -13,6 +13,10 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 
 from app.agents.question_agent import QuestionAgent
 from app.agents.change_impact_agent import ChangeImpactAgent
+from app.agents.architecture_agent import ArchitectureAgent
+from app.agents.entry_point_agent import EntryPointAgent
+from app.agents.glossary_agent import GlossaryAgent
+from app.agents.onboarding_agent import OnboardingAgent
 from app.core.config import get_settings
 from app.models.schemas import (
     AnalysisStatus,
@@ -115,6 +119,13 @@ async def get_architecture(repo_id: str):
     return state.architecture
 
 
+@router.post("/repos/{repo_id}/architecture/regenerate", tags=["Analysis"])
+async def regenerate_architecture(repo_id: str):
+    state = _get_completed_state(repo_id)
+    await _regenerate(state, ArchitectureAgent)
+    return state.architecture
+
+
 # ============================================================
 # Entry Points
 # ============================================================
@@ -127,6 +138,12 @@ async def get_entry_points(repo_id: str):
     return EntryPointsResponse(**state.entry_points)
 
 
+@router.post("/repos/{repo_id}/entry-points/regenerate", response_model=EntryPointsResponse, tags=["Analysis"])
+async def regenerate_entry_points(repo_id: str):
+    state = _get_completed_state(repo_id)
+    return await _regenerate(state, EntryPointAgent)
+
+
 # ============================================================
 # Question (RAG) - with @file support
 # ============================================================
@@ -137,8 +154,8 @@ async def ask_question(repo_id: str, request: QuestionRequest):
 
     # If a file path is mentioned, try to load its content for context
     file_context = ""
-    if hasattr(request, "file_path") and request.file_path:
-        file_context = _read_repo_file(state, request.file_path)
+    if request.file_path:
+        file_context = _read_repo_file(state, request.file_path) or ""
 
     agent = QuestionAgent()
     return await agent.run(
@@ -161,6 +178,12 @@ async def get_glossary(repo_id: str):
     return GlossaryResponse(**state.glossary)
 
 
+@router.post("/repos/{repo_id}/glossary/regenerate", response_model=GlossaryResponse, tags=["Analysis"])
+async def regenerate_glossary(repo_id: str):
+    state = _get_completed_state(repo_id)
+    return await _regenerate(state, GlossaryAgent)
+
+
 # ============================================================
 # Change Impact
 # ============================================================
@@ -181,6 +204,13 @@ async def get_onboarding(repo_id: str):
     state = _get_completed_state(repo_id)
     if not state.onboarding:
         raise HTTPException(status_code=404, detail="Onboarding guide not available")
+    return state.onboarding
+
+
+@router.post("/repos/{repo_id}/onboarding/regenerate", tags=["Analysis"])
+async def regenerate_onboarding(repo_id: str):
+    state = _get_completed_state(repo_id)
+    await _regenerate(state, OnboardingAgent)
     return state.onboarding
 
 
@@ -230,7 +260,7 @@ async def search_files(repo_id: str, q: str = Query(..., min_length=1, descripti
 
     matches = []
     for f in state.parsed_files:
-        path = f.get("path", "")
+        path = f.get("path", "").replace("\\", "/")
         if query in path.lower():
             matches.append({
                 "path": path,
@@ -257,6 +287,40 @@ async def get_embedding_stats(repo_id: str):
 # ============================================================
 # Helpers
 # ============================================================
+
+def _hydrate_parsed_file_content(state) -> None:
+    """RepoState._save() strips file content before writing state to disk (kept out
+    of the JSON to keep it small - see state_manager.py), so parsed_files loaded from
+    a persisted state (e.g. after a server restart) carry metadata only, no content.
+    That's invisible during the original ingestion pipeline run since content is still
+    in memory at that point, but a later on-demand regenerate needs it re-read from
+    the still-cloned repo on disk, or agents that read f["content"] silently produce
+    empty output instead of a real error."""
+    if not state.parsed_files or not state.local_path:
+        return
+    if any(f.get("content") for f in state.parsed_files):
+        return
+    for f in state.parsed_files:
+        content = _read_repo_file(state, f.get("path", ""))
+        if content is not None:
+            f["content"] = content
+
+
+async def _regenerate(state, agent_cls):
+    """Re-run a single post-processing agent against already-ingested state (parsed
+    files, embeddings, dependency graph are all still on disk) without a full
+    re-clone/re-embed, for when one tab's analysis failed or was never generated.
+    Restores status/progress to complete afterward either way, so the repo doesn't
+    read as stuck 'processing' if the regeneration itself fails."""
+    _hydrate_parsed_file_content(state)
+    try:
+        return await agent_cls().run(state)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Regeneration failed: {e}")
+    finally:
+        state.update(AnalysisStatus.COMPLETE, 100, "Analysis complete")
+        state._save()
+
 
 def _get_completed_state(repo_id: str):
     state = get_state_manager().get(repo_id)
@@ -287,7 +351,10 @@ def _build_tree(files: list[dict]) -> list[dict]:
     root: dict = {}
 
     for f in files:
-        parts = f.get("path", "").split("/")
+        # Normalize in case paths were persisted with OS-native (Windows) separators
+        # by an older ingestion run.
+        norm_path = f.get("path", "").replace("\\", "/")
+        parts = norm_path.split("/")
         current = root
         for part in parts[:-1]:
             if part not in current:
@@ -296,7 +363,7 @@ def _build_tree(files: list[dict]) -> list[dict]:
         # Leaf node (file)
         current[parts[-1]] = {
             "__file__": True,
-            "path": f.get("path", ""),
+            "path": norm_path,
             "language": f.get("language", ""),
             "line_count": f.get("line_count", 0),
             "size_bytes": f.get("size_bytes", 0),
@@ -304,7 +371,10 @@ def _build_tree(files: list[dict]) -> list[dict]:
 
     def _to_list(node: dict, prefix: str = "") -> list[dict]:
         items = []
-        for name, value in sorted(node.items()):
+        # VS Code-style ordering: directories first, then files, each alphabetical (case-insensitive).
+        is_file = lambda v: isinstance(v, dict) and "__file__" in v
+        entries = sorted(node.items(), key=lambda kv: (is_file(kv[1]), kv[0].lower()))
+        for name, value in entries:
             if isinstance(value, dict) and "__file__" in value:
                 items.append({
                     "name": name,

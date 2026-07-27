@@ -10,11 +10,24 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['"General Sans"', '"Satoshi"', "system-ui", "sans-serif"],
-        display: ['"Satoshi"', "system-ui", "sans-serif"],
+        sans: ['"General Sans"', "system-ui", "sans-serif"],
+        display: ['"Fraunces"', "system-ui", "serif"],
         mono: ['"JetBrains Mono"', "monospace"],
       },
       colors: {
+        ink: {
+          50: "#FAF9F6",
+          100: "#F1EFEA",
+          200: "#E2DFD7",
+          300: "#C9C4B8",
+          400: "#9C9689",
+          500: "#78725F",
+          600: "#57513F",
+          700: "#3C3830",
+          800: "#282520",
+          900: "#1A1814",
+          950: "#100F0C",
+        },
         accent: {
           DEFAULT: "#10b981",
           50: "#ecfdf5",
@@ -30,22 +43,17 @@ module.exports = {
         },
       },
       borderRadius: {
-        "2xl": "1rem",
-        "3xl": "1.25rem",
+        "2xl": "0.75rem",
+        "3xl": "1rem",
       },
       animation: {
         "fade-in-up": "fade-in-up 0.6s ease-out both",
-        "float": "float 6s ease-in-out infinite",
         "shimmer": "shimmer 2.5s ease-in-out infinite",
       },
       keyframes: {
         "fade-in-up": {
           from: { opacity: "0", transform: "translateY(16px)" },
           to: { opacity: "1", transform: "translateY(0)" },
-        },
-        float: {
-          "0%, 100%": { transform: "translateY(0px)" },
-          "50%": { transform: "translateY(-8px)" },
         },
         shimmer: {
           "0%, 100%": { backgroundPosition: "-200% 0" },

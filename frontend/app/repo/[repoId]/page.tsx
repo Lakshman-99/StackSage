@@ -55,41 +55,37 @@ export default function RepoPage() {
   const activeTab = useAppStore((s) => s.activeTab);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <Loader2 className="w-5 h-5 animate-spin text-accent-400" />
-      </div>
-    );
-  }
-
-  if (!status) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen gap-2">
-        <p className="text-sm text-zinc-500">Repository not found.</p>
-        <p className="text-xs font-mono text-zinc-700">{repoId}</p>
-      </div>
-    );
-  }
-
-  const isComplete = status.status === "complete";
-  const isFailed = status.status === "failed";
-  const isProcessing = !isComplete && !isFailed;
+  // Render one stable header+content shell for every state (first load, processing,
+  // complete, failed, not-found) instead of swapping between different top-level
+  // layouts - that swap was the source of the jump/flicker right after clicking
+  // "Analyze a Repository", since the very first frame (isLoading) used to render a
+  // completely different full-screen layout than the one that replaced it a moment later.
+  const notFound = !isLoading && !status;
+  const isComplete = status?.status === "complete";
+  const isFailed = status?.status === "failed";
+  const isProcessing = !!status && !isComplete && !isFailed;
 
   return (
     <div className="min-h-screen">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-[#0a0a0c]/80 backdrop-blur-xl border-b border-zinc-800/40">
+      <div className="sticky top-0 z-10 bg-ink-50/90 backdrop-blur-xl border-b border-ink-200/60">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="flex items-center gap-3 py-3 sm:py-4">
-            {isComplete && <CheckCircle2 className="w-4 h-4 text-accent-400 shrink-0" />}
-            {isFailed && <XCircle className="w-4 h-4 text-red-400 shrink-0" />}
-            {isProcessing && <Loader2 className="w-4 h-4 text-amber-400 animate-spin shrink-0" />}
-            <h1 className="text-sm font-mono font-medium text-zinc-200 truncate">{repoId}</h1>
+            {isLoading && <Loader2 className="w-4 h-4 text-ink-400 animate-spin shrink-0" />}
+            {isComplete && <CheckCircle2 className="w-4 h-4 text-accent-500 shrink-0" />}
+            {isFailed && <XCircle className="w-4 h-4 text-red-500 shrink-0" />}
+            {isProcessing && <Loader2 className="w-4 h-4 text-amber-500 animate-spin shrink-0" />}
+            <h1 className="text-sm font-mono font-medium text-ink-800 truncate">{repoId}</h1>
           </div>
 
-          {isProcessing && <div className="pb-3"><ProgressBar progress={status.progress} status={status.status} currentStep={status.current_step} /></div>}
-          {isFailed && <div className="pb-3"><div className="p-3 rounded-xl bg-red-500/5 border border-red-500/10 text-xs text-red-400 font-mono">{status.error}</div></div>}
+          {isProcessing && status && (
+            <div className="pb-3"><ProgressBar progress={status.progress} status={status.status} currentStep={status.current_step} /></div>
+          )}
+          {isFailed && status && (
+            <div className="pb-3">
+              <div className="border-l-2 border-red-400 pl-4 py-1 text-xs text-red-600 font-mono">{status.error}</div>
+            </div>
+          )}
 
           {/* Tabs - scrollable on mobile */}
           {isComplete && (
@@ -99,10 +95,10 @@ export default function RepoPage() {
                   key={id}
                   onClick={() => setActiveTab(id)}
                   className={cn(
-                    "flex items-center gap-1.5 px-3 sm:px-4 py-2.5 text-[12px] sm:text-[13px] font-medium transition-all border-b-2 rounded-t-lg whitespace-nowrap shrink-0",
+                    "flex items-center gap-1.5 px-3 sm:px-4 py-2.5 text-[12px] sm:text-[13px] font-medium transition-colors border-b-2 whitespace-nowrap shrink-0",
                     activeTab === id
-                      ? "border-accent-500 text-accent-400"
-                      : "border-transparent text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800/20"
+                      ? "border-ink-950 text-ink-950"
+                      : "border-transparent text-ink-400 hover:text-ink-700"
                   )}
                 >
                   <Icon className="w-3.5 h-3.5" />
@@ -116,20 +112,31 @@ export default function RepoPage() {
 
       {/* Content */}
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+        {isLoading && (
+          <div className="flex items-center justify-center py-32">
+            <Loader2 className="w-5 h-5 animate-spin text-ink-400" />
+          </div>
+        )}
+
+        {notFound && (
+          <div className="flex flex-col items-center justify-center py-32 gap-2">
+            <p className="text-sm text-ink-500">Repository not found.</p>
+            <p className="text-xs font-mono text-ink-300">{repoId}</p>
+          </div>
+        )}
+
         {isComplete && <TabContent tab={activeTab} repoId={repoId} />}
 
         {isProcessing && (
           <div className="flex flex-col items-center justify-center py-32 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-accent-600/10 border border-accent-600/15 flex items-center justify-center mb-6">
-              <Loader2 className="w-6 h-6 animate-spin text-accent-400" />
-            </div>
-            <p className="text-sm text-zinc-300 mb-1">Agents are analyzing the repository</p>
-            <p className="text-xs text-zinc-600 mb-8">This typically takes 2–5 minutes with Groq free tier</p>
+            <Loader2 className="w-6 h-6 animate-spin text-ink-400 mb-6" />
+            <p className="text-sm text-ink-700 mb-1">Agents are analyzing the repository</p>
+            <p className="text-xs text-ink-400 mb-8">This typically takes 2 to 5 minutes on the free tier</p>
 
-            {status.steps_completed.length > 0 && (
+            {status && status.steps_completed.length > 0 && (
               <div className="inline-flex flex-col items-start gap-2">
                 {status.steps_completed.map((step, i) => (
-                  <span key={i} className="flex items-center gap-2 text-[11px] font-mono text-zinc-500">
+                  <span key={i} className="flex items-center gap-2 text-[11px] font-mono text-ink-500">
                     <CheckCircle2 className="w-3 h-3 text-accent-500" />
                     {step}
                   </span>

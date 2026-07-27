@@ -9,13 +9,14 @@ Author: Lakshman
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api.routes import router
 from app.core.config import get_settings
 from app.core.logging import setup_logging, get_logger
-from app.services.llm_service import get_llm_service
+from app.services.llm_service import LLMError, LLMClientError, RateLimitError, get_llm_service
 
 settings = get_settings()
 
@@ -51,10 +52,12 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# CORS
+# CORS - explicit origins from settings, plus any localhost port for local dev
+# (Next.js falls back to 3001, 3002, etc. when its default port is taken)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -62,6 +65,19 @@ app.add_middleware(
 
 # Mount routes
 app.include_router(router, prefix="/api/v1")
+
+
+@app.exception_handler(LLMError)
+async def llm_error_handler(request: Request, exc: LLMError):
+    """Surface LLM provider failures (rate limits, oversized requests) as
+    clean JSON errors instead of an opaque 500."""
+    if isinstance(exc, RateLimitError):
+        status_code, message = 429, "The AI provider is rate-limiting requests. Please wait a moment and try again."
+    elif isinstance(exc, LLMClientError):
+        status_code, message = 400, f"The AI provider rejected this request: {exc}"
+    else:
+        status_code, message = 502, f"The AI provider is temporarily unavailable: {exc}"
+    return JSONResponse(status_code=status_code, content={"detail": message})
 
 
 # Root redirect to docs
